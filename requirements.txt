@@ -1,0 +1,16 @@
+# Core RAG Dependencies
+langchain>=1.5.0
+langchain-community>=0.4.0
+langchain-ollama>=1.1.0
+langchain-text-splitters>=1.1.0
+langchain-core>=1.8.0
+
+# Vector Database & Document Parsers
+faiss-cpu>=1.9.0
+pypdf>=5.0.0
+
+# Ollama Client
+ollama>=0.6.0
+
+# Optional Dashboards
+streamlit>=1.30.0
