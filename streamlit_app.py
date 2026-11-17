@@ -1,6 +1,11 @@
 """
 Streamlit Web UI for RAG Pipeline with Ollama & FAISS
-Features grounded Q&A, Executive Briefing generator, and relevance scoring.
+Features:
+- File uploads (PDF, TXT, MD, CSV)
+- Web Link Ingestion & Instant Summarization
+- Grounded Q&A with conversational memory
+- Executive Document Briefing generator
+- Vector relevance match percentage scoring
 Launch with: streamlit run streamlit_app.py
 """
 
@@ -10,7 +15,7 @@ import streamlit as st
 from rag_pipeline import RAGPipeline, list_ollama_models
 
 st.set_page_config(
-    page_title="RAG Document QA Studio",
+    page_title="RAG Document & URL QA Studio",
     page_icon="🔍",
     layout="wide"
 )
@@ -31,7 +36,31 @@ if "messages" not in st.session_state:
 with st.sidebar:
     st.title("⚙️ RAG Configuration")
 
-    st.subheader("1. Document Management")
+    st.subheader("1. Ingest Documents or Web Links")
+    
+    # URL Ingestion
+    url_input = st.text_input("Ingest Web Link / Online PDF", placeholder="https://example.com/article")
+    if st.button("🌐 Summarize & Ingest Link", disabled=not url_input, use_container_width=True):
+        with st.spinner("Fetching webpage, computing embeddings & generating briefing..."):
+            try:
+                res = st.session_state.rag.summarize_url(url_input)
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": f"🌐 Ingest and summarize URL: {url_input}"
+                })
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": res["summary"],
+                    "sources": res["sources"],
+                    "suggested_questions": res["suggested_questions"]
+                })
+                st.success(f"Indexed web source: '{res['title']}'! You can now ask questions below.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error processing URL: {e}")
+
+    st.caption("— OR Upload Local Files —")
+
     uploaded_files = st.file_uploader(
         "Upload Documents",
         type=["pdf", "txt", "md", "csv"],
@@ -40,7 +69,7 @@ with st.sidebar:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Index Uploaded Files", disabled=not uploaded_files, use_container_width=True):
+        if st.button("Index Files", disabled=not uploaded_files, use_container_width=True):
             with st.spinner("Processing documents & computing embeddings..."):
                 temp_dir = tempfile.mkdtemp()
                 paths = []
@@ -54,7 +83,7 @@ with st.sidebar:
                 st.success(f"Indexed {stats['files_count']} file(s) into {stats['total_chunks']} chunks!")
 
     with col2:
-        if st.button("Load ./data Folder", use_container_width=True):
+        if st.button("Load ./data", use_container_width=True):
             if os.path.exists("data"):
                 with st.spinner("Indexing ./data PDFs..."):
                     stats = st.session_state.rag.build_index_from_files("data")
@@ -68,11 +97,10 @@ with st.sidebar:
     stats = st.session_state.rag.get_stats()
     if stats["has_index"]:
         st.success("🟢 Index is active")
-        st.write(f"**Chunks:** {stats['total_chunks']} | **Files:** {stats['total_files']}")
+        st.write(f"**Chunks:** {stats['total_chunks']} | **Sources:** {stats['total_files']}")
     else:
         st.warning("🟡 No documents loaded yet")
 
-    # NEW FEATURE: Executive Briefing Button
     if st.button("📑 Generate Executive Briefing", use_container_width=True, disabled=not stats["has_index"]):
         with st.spinner("Synthesizing Executive Briefing across documents..."):
             try:
@@ -127,21 +155,19 @@ with st.sidebar:
         st.rerun()
 
 # Main Area
-st.title("🔍 RAG Document QA Studio")
-st.caption("Ask questions grounded strictly in your documents with Ollama & FAISS")
+st.title("🔍 RAG Document & URL QA Studio")
+st.caption("Ask questions grounded strictly in your documents or web links with Ollama & FAISS")
 
 # Display Messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         
-        # Display suggested questions if available
         if "suggested_questions" in msg and msg["suggested_questions"]:
             st.markdown("##### 💡 Recommended Exploration Questions:")
             for q in msg["suggested_questions"]:
                 st.markdown(f"- *{q}*")
 
-        # Display sources with relevance match %
         if "sources" in msg and msg["sources"]:
             with st.expander(f"📚 Retrieved Sources ({len(msg['sources'])} chunks)"):
                 for s in msg["sources"]:
@@ -151,7 +177,7 @@ for msg in st.session_state.messages:
                     st.divider()
 
 # Chat Input
-if prompt := st.chat_input("Ask a question about your documents..."):
+if prompt := st.chat_input("Ask a question about your documents or the web link..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)

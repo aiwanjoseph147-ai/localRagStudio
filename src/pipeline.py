@@ -1,7 +1,7 @@
 """
 End-to-End RAG Pipeline Orchestrator.
-Combines document loading, chunking, embeddings, FAISS retrieval, relevance scoring,
-executive document summarization, and Ollama LLM answering.
+Combines document loading, web URL fetching, chunking, embeddings, FAISS retrieval,
+relevance scoring, executive document summarization, and Ollama LLM answering.
 """
 
 import os
@@ -20,8 +20,8 @@ from .models import get_llm, get_embeddings
 class RAGPipeline:
     """
     Main RAG Pipeline class.
-    Coordinates document ingestion, vector database management, relevance scoring,
-    executive summarization, and conversational Q&A.
+    Coordinates document ingestion, web URL indexing, vector database management,
+    relevance scoring, executive summarization, and conversational Q&A.
     """
 
     def __init__(
@@ -138,6 +138,75 @@ class RAGPipeline:
             "chunk_overlap": c_overlap,
         }
 
+    def build_index_from_url(
+        self,
+        url: str,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        NEW FEATURE: Fetches a web page or online PDF URL, chunks it, and builds a FAISS index.
+        """
+        c_size = chunk_size if chunk_size is not None else self.chunk_size
+        c_overlap = chunk_overlap if chunk_overlap is not None else self.chunk_overlap
+
+        # 1. Fetch & parse URL
+        raw_docs, page_title = DocumentManager.load_url(url)
+        if not raw_docs:
+            raise ValueError(f"No content found at URL: {url}")
+
+        # 2. Chunk text
+        chunks = VectorStoreManager.chunk_documents(
+            documents=raw_docs,
+            chunk_size=c_size,
+            chunk_overlap=c_overlap
+        )
+
+        # 3. Build FAISS index
+        vector_db = VectorStoreManager.create_vector_store(chunks, self.embeddings)
+
+        self.vector_db = vector_db
+        self.indexed_files = [f"URL: {page_title}"]
+        self.total_pages = len(raw_docs)
+        self.total_chunks = len(chunks)
+        self.chunk_size = c_size
+        self.chunk_overlap = c_overlap
+
+        return {
+            "status": "success",
+            "url": url,
+            "title": page_title,
+            "files_count": 1,
+            "files": [page_title],
+            "total_pages": self.total_pages,
+            "total_chunks": self.total_chunks,
+            "chunk_size": c_size,
+            "chunk_overlap": c_overlap,
+        }
+
+    def summarize_url(
+        self,
+        url: str,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        max_chunks: int = 6
+    ) -> Dict[str, Any]:
+        """
+        NEW FEATURE: Indexes a web URL and generates an Executive Briefing with smart questions.
+        """
+        index_stats = self.build_index_from_url(url, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        summary_result = self.generate_summary(max_chunks=max_chunks)
+
+        return {
+            "status": "success",
+            "url": url,
+            "title": index_stats["title"],
+            "summary": summary_result["summary"],
+            "suggested_questions": summary_result["suggested_questions"],
+            "sources": summary_result["sources"],
+            "stats": self.get_stats()
+        }
+
     def save_index(self, directory_path: str) -> str:
         """Saves current FAISS index to disk."""
         if self.vector_db is None:
@@ -246,7 +315,7 @@ Question:
 
     def generate_summary(self, max_chunks: int = 6) -> Dict[str, Any]:
         """
-        NEW FEATURE: Executive Document Briefing & Smart Question Generator.
+        Executive Document Briefing & Smart Question Generator.
         Analyzes the active knowledge base and generates:
         1. An Executive Overview
         2. Key Findings & Core Evidence
@@ -254,10 +323,10 @@ Question:
         4. Curated Deep-Dive Questions for one-click exploration
         """
         if self.vector_db is None:
-            raise ValueError("No active index to summarize. Please load documents first.")
+            raise ValueError("No active index to summarize. Please load documents or a URL first.")
 
         # Search across broad discovery queries to capture multi-angle context
-        broad_terms = "overview summary background investigation allegations report evidence conclusions"
+        broad_terms = "overview summary background investigation allegations report evidence conclusions main points"
         retrieved_with_scores = VectorStoreManager.search_with_relevance(
             self.vector_db, broad_terms, k=max_chunks
         )
@@ -321,10 +390,10 @@ Context:
         # Fallback default questions if regex didn't catch 4
         if len(suggested_questions) < 2:
             suggested_questions = [
-                "What are the main allegations or primary claims made in these documents?",
-                "What specific evidence or witness testimonies support these claims?",
-                "Who are the key figures involved and what are their respective statements?",
-                "What conclusions or official statuses are documented?"
+                "What are the main claims or core facts documented in this source?",
+                "What specific evidence or arguments support these points?",
+                "Who are the key people, organizations, or subjects mentioned?",
+                "What conclusions or next steps are highlighted?"
             ]
 
         # Add briefing to chat memory so user can ask follow-ups naturally

@@ -2,7 +2,11 @@
 """
 Interactive Command Line Interface for RAG Question Answering
 Powered by LangChain, Ollama, and FAISS.
-Features grounded Q&A, Executive Briefing generator, and relevance scoring.
+Features:
+- Document & Folder Ingestion (PDF, TXT, MD, CSV)
+- Web Link Ingestion & Instant Summarization
+- Continuous Conversational Q&A
+- Relevance Scoring & Source Inspection
 """
 
 import os
@@ -12,14 +16,15 @@ from rag_pipeline import RAGPipeline, DocumentManager, list_ollama_models
 
 BANNER = """
 ================================================================================
-                    RAG DOCUMENT INVESTIGATOR & QA APP
+                    RAG DOCUMENT & URL INVESTIGATOR & QA APP
           Retrieval-Augmented Generation with Ollama & FAISS
 ================================================================================
 """
 
 HELP_TEXT = """
 Available Commands:
-  /summary        - Generate an Executive Briefing and Smart Questions from the documents
+  /summary        - Generate an Executive Briefing and Smart Questions from the active content
+  /url <url>      - Ingest a web page or online PDF URL, summarize it, and enable Q&A
   /sources        - Show sources & chunks used for the previous answer with relevance scores
   /stats          - Display current index and hyperparameter statistics
   /clear          - Reset conversation history
@@ -47,9 +52,10 @@ def format_sources(sources):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RAG Document QA CLI")
+    parser = argparse.ArgumentParser(description="RAG Document & URL QA CLI")
     parser.add_argument("--dir", "-d", type=str, help="Path to directory containing documents to index (e.g. ./data)")
     parser.add_argument("--files", "-f", nargs="+", help="Specific files to index")
+    parser.add_argument("--url", "-u", type=str, help="Web URL or online PDF link to ingest and query")
     parser.add_argument("--load-index", "-i", type=str, help="Path to pre-existing FAISS vector store (e.g. elrond_investigation)")
     parser.add_argument("--llm", type=str, default="qwen2.5:3b", help="Ollama LLM model name (default: qwen2.5:3b)")
     parser.add_argument("--embed", type=str, default="bge-m3", help="Ollama embedding model name (default: bge-m3)")
@@ -71,8 +77,27 @@ def main():
         persona=args.persona
     )
 
+    last_sources = []
+
     # Determine initial data source
-    if args.load_index:
+    if args.url:
+        print(f"Fetching and indexing web link: {args.url}...")
+        try:
+            summary_res = rag.summarize_url(args.url)
+            last_sources = summary_res["sources"]
+            print(f"Success! Indexed web page: \"{summary_res['title']}\" into {summary_res['stats']['total_chunks']} chunks.\n")
+            print("=" * 80)
+            print(summary_res["summary"])
+            print("=" * 80)
+            if summary_res["suggested_questions"]:
+                print("\n💡 Suggested Exploration Questions:")
+                for idx, q in enumerate(summary_res["suggested_questions"], 1):
+                    print(f"   [{idx}] {q}")
+            print("\nYou can now ask any questions about this web page!\n")
+        except Exception as e:
+            print(f"Error processing URL: {e}")
+            sys.exit(1)
+    elif args.load_index:
         print(f"Loading existing vector database from: {args.load_index}...")
         try:
             rag.load_index(args.load_index)
@@ -99,17 +124,18 @@ def main():
             stats = rag.build_index_from_files("data")
             print(f"Success! Indexed {stats['files_count']} file(s) into {stats['total_chunks']} chunks.\n")
         else:
-            path_input = input("Enter path to documents folder or file to index: ").strip()
-            if path_input:
+            path_input = input("Enter path to documents folder, file, or URL to index: ").strip()
+            if path_input.startswith("http://") or path_input.startswith("https://"):
+                stats = rag.build_index_from_url(path_input)
+                print(f"Success! Indexed web page into {stats['total_chunks']} chunks.\n")
+            elif path_input:
                 stats = rag.build_index_from_files(path_input)
                 print(f"Success! Indexed {stats['files_count']} file(s) into {stats['total_chunks']} chunks.\n")
             else:
                 print("No documents provided. Exiting.")
                 sys.exit(0)
 
-    print("System ready! Type your question, '/summary' for an executive briefing, or '/help' for commands.\n")
-
-    last_sources = []
+    print("System ready! Type your question, '/url <link>' to ingest a web page, or '/help' for commands.\n")
 
     while True:
         try:
@@ -132,6 +158,27 @@ def main():
 
             if cmd == "/help":
                 print(HELP_TEXT)
+            elif cmd == "/url":
+                if not arg:
+                    print("Usage: /url <https://example.com/article>")
+                else:
+                    print(f"\nFetching and indexing: {arg}...", end="\r", flush=True)
+                    try:
+                        summary_res = rag.summarize_url(arg)
+                        last_sources = summary_res["sources"]
+                        print(" " * 60, end="\r")
+                        print("\n" + "=" * 80)
+                        print(f"SOURCE: {summary_res['title']} ({summary_res['url']})")
+                        print("=" * 80)
+                        print(summary_res["summary"])
+                        print("=" * 80)
+                        if summary_res["suggested_questions"]:
+                            print("\n💡 Suggested Questions:")
+                            for idx, q in enumerate(summary_res["suggested_questions"], 1):
+                                print(f"   [{idx}] {q}")
+                        print("\nYou can now ask any question about this web page!")
+                    except Exception as e:
+                        print(f"\nError ingesting URL: {e}")
             elif cmd == "/summary":
                 print("\nSynthesizing Executive Briefing across documents...", end="\r", flush=True)
                 try:

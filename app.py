@@ -2,7 +2,12 @@
 """
 RAG Studio Web Application
 Local HTTP Server serving a modern interactive UI for Document RAG with Ollama & FAISS.
-Features grounded Q&A, Executive Briefing generator, and relevance scoring.
+Features:
+- File uploads (PDF, TXT, MD, CSV)
+- Web URL fetching, indexing, and instant summarization
+- Grounded Q&A with conversational memory
+- Executive Document Briefing generator
+- Vector relevance match percentage scoring
 """
 
 import os
@@ -52,7 +57,9 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path = parsed.path.rstrip("/")
+        if not path:
+            path = "/"
 
         if path in ("/", "/index.html"):
             self.serve_file(os.path.join(os.path.dirname(__file__), "web", "index.html"), "text/html")
@@ -61,6 +68,8 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
         elif path == "/api/models":
             models = list_ollama_models()
             self.send_json({"models": models})
+        elif path.startswith("/api/"):
+            self.send_json({"error": f"API GET endpoint not found: {path}"}, status=404)
         else:
             # Fallback for static assets in web/
             local_path = os.path.join(os.path.dirname(__file__), "web", path.lstrip("/"))
@@ -71,7 +80,7 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path = parsed.path.rstrip("/")
 
         content_length = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_length)
@@ -87,6 +96,8 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
                 self.handle_chat(body)
             elif path == "/api/summary":
                 self.handle_summary(body)
+            elif path == "/api/url-summary":
+                self.handle_url_summary(body)
             elif path == "/api/upload":
                 self.handle_upload(body)
             elif path == "/api/load-directory":
@@ -99,7 +110,7 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
                 rag.clear_chat_history()
                 self.send_json({"status": "cleared"})
             else:
-                self.send_error(404, "Endpoint not found")
+                self.send_json({"error": f"API POST endpoint not found: {path}"}, status=404)
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -128,6 +139,29 @@ class RAGRequestHandler(SimpleHTTPRequestHandler):
         if llm_model:
             rag.update_models(llm_model=llm_model)
         result = rag.generate_summary(max_chunks=max_chunks)
+        self.send_json(result)
+
+    def handle_url_summary(self, body):
+        url = body.get("url", "").strip()
+        if not url:
+            self.send_json({"error": "No URL provided"}, status=400)
+            return
+
+        chunk_size = body.get("chunk_size", 500)
+        chunk_overlap = body.get("chunk_overlap", 150)
+        llm_model = body.get("llm_model")
+        embed_model = body.get("embed_model")
+        max_chunks = body.get("max_chunks", 6)
+
+        if llm_model or embed_model:
+            rag.update_models(llm_model=llm_model, embed_model=embed_model)
+
+        result = rag.summarize_url(
+            url,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            max_chunks=max_chunks
+        )
         self.send_json(result)
 
     def handle_upload(self, body):

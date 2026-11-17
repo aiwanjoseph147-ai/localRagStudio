@@ -2,37 +2,41 @@
 
 A modular, production-ready **Retrieval-Augmented Generation (RAG)** application built in Python using **LangChain**, **Ollama**, and **FAISS**.
 
-Ingest **any set of documents** (PDFs, TXT, Markdown, CSV), chunk and embed them locally, generate **one-click Executive Briefings**, and ask questions with strict fact-grounding, conversation history, and clickable citations with **relevance match percentages**.
+Ingest **any set of local documents** (PDFs, TXT, Markdown, CSV) **or web links/URLs** (articles, documentation, online PDFs), chunk and embed them locally, generate **one-click Executive Briefings**, and ask questions with strict fact-grounding, conversation history, and clickable citations with **relevance match percentages**.
 
 ---
 
 ## 🌟 Key Features
 
-1. **Multi-Format Ingestion**:
+1. **🌐 Web Link Ingestion & Instant Summarization (NEW)**:
+   - Paste any article, documentation URL, or online PDF link directly into the Studio.
+   - Automatically cleans and extracts text, builds FAISS vector embeddings, generates an **Executive Briefing**, and allows you to **ask any follow-up questions** about that web page.
+
+2. **Multi-Format Local Document Ingestion**:
    - Supports uploading or pointing to sets of files (`.pdf`, `.txt`, `.md`, `.json`, `.csv`).
    - Automatically parses pages and extracts source metadata.
    - Built-in one-click support for the included `./data` folder (10 Elrond Investigation PDFs).
 
-2. **📑 Executive Briefing & Smart Question Generator (NEW)**:
-   - One-click synthesis of the entire document collection.
+3. **📑 Executive Briefing & Smart Question Generator**:
+   - One-click synthesis of the entire document or web page content.
    - Generates an **Executive Overview**, **Key Findings & Evidence**, and **Key Entities / Topics**.
-   - Automatically suggests **clickable deep-dive questions** tailored to the specific documents loaded.
+   - Automatically suggests **clickable deep-dive questions** tailored to the specific content loaded.
 
-3. **🎯 Relevance Scoring & Source Attribution (NEW)**:
+4. **🎯 Relevance Scoring & Source Attribution**:
    - Computes normalized vector similarity match percentages (`Match: 88.5%`) for every retrieved chunk.
    - Every answer includes expandable citations indicating exact source filenames, page numbers, and chunk previews.
 
-4. **FAISS Vector Indexing & Persistence**:
+5. **FAISS Vector Indexing & Persistence**:
    - High-speed vector similarity search using `bge-m3` embeddings.
    - Save indexes to disk (`save_local`) and reload them later without re-embedding (`load_local`).
 
-5. **Conversational Memory & Grounding**:
+6. **Conversational Memory & Grounding**:
    - Multi-turn conversation tracking (`chat_history`) for contextual follow-up questions.
    - Grounded persona instructions (AI Detective, Assistant, Strict Fact-Checker, Academic) to prevent hallucinations.
 
-6. **Multiple User Interfaces**:
-   - **Modern Web Studio (`app.py`)**: Zero-dependency local browser interface with drag-and-drop upload, sliders, and chat UI.
-   - **Interactive CLI (`cli.py`)**: Fast terminal interface with special slash commands (`/summary`, `/sources`, `/stats`).
+7. **Multiple User Interfaces**:
+   - **Modern Web Studio (`app.py`)**: Zero-dependency local browser interface with URL input, drag-and-drop upload, sliders, and chat UI.
+   - **Interactive CLI (`cli.py`)**: Fast terminal interface with special slash commands (`/url`, `/summary`, `/sources`, `/stats`).
    - **Streamlit App (`streamlit_app.py`)**: Optional Streamlit dashboard interface.
 
 ---
@@ -40,38 +44,38 @@ Ingest **any set of documents** (PDFs, TXT, Markdown, CSV), chunk and embed them
 ## 🏗️ Architecture & Workflow
 
 ```
- 📄 User Documents (PDF / TXT / MD)
-                │
-                ▼
-      [ DocumentManager ]
-     (Loads & extracts pages)
-                │
-                ▼
-   [ VectorStoreManager: Chunking ]
-   (RecursiveCharacterTextSplitter)
-      chunk_size=500, overlap=150
-                │
-                ▼
-   [ OllamaEmbeddings: bge-m3 ]
-                │
-                ▼
-      [ FAISS Vector Store ]  ◄── (save_local / load_local)
-                │
-     ┌──────────┴──────────┐
-     ▼                     ▼
-[ User Question ]    [ Top-K Chunks with Relevance % ]
-     │                     │
-     └──────────┬──────────┘
-                ▼
-    [ Grounded Prompt Builder ]
-    (Context + History + Persona)
-                │
-                ▼
-     [ ChatOllama: qwen2.5:3b ]
-                │
-                ▼
-    🎯 Answer with Relevance Citations
-    💡 Dynamic Exploration Questions
+ 📄 User Files (PDF / TXT / MD)  OR  🌐 Web Link / Online PDF URL
+                         │
+                         ▼
+               [ DocumentManager ]
+         (Loads, extracts text & parses HTML)
+                         │
+                         ▼
+          [ VectorStoreManager: Chunking ]
+          (RecursiveCharacterTextSplitter)
+             chunk_size=500, overlap=150
+                         │
+                         ▼
+            [ OllamaEmbeddings: bge-m3 ]
+                         │
+                         ▼
+               [ FAISS Vector Store ]  ◄── (save_local / load_local)
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+         [ User Question ]    [ Top-K Chunks with Relevance % ]
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+             [ Grounded Prompt Builder ]
+             (Context + History + Persona)
+                         │
+                         ▼
+              [ ChatOllama: qwen2.5:3b ]
+                         │
+                         ▼
+             🎯 Answer with Relevance Citations
+             💡 Dynamic Exploration Questions
 ```
 
 ---
@@ -83,7 +87,7 @@ rag_ollama/
 ├── src/                          # Core application package
 │   ├── __init__.py               # Package exports (RAGPipeline, DocumentManager, etc.)
 │   ├── config.py                 # Defaults, hyperparameters, and personas
-│   ├── document_loader.py        # Multi-format document loading & metadata parsing
+│   ├── document_loader.py        # Local files + Web URL loader & HTML cleaner
 │   ├── vector_store.py           # Text chunking, FAISS index, and relevance search
 │   ├── models.py                 # Ollama LLM and embedding utilities
 │   └── pipeline.py               # RAGPipeline orchestrator, Q&A, and Executive Briefing
@@ -143,12 +147,12 @@ Launch the web application with zero external web dependencies:
 Open your browser to:
 👉 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
 
-**Web UI Features**:
-- **Drag-and-Drop Ingestion**: Upload custom PDF, TXT, or Markdown documents with live progress.
-- **📑 Executive Briefing**: Click the new **"Generate Executive Briefing"** button to summarize the entire knowledge base and generate clickable questions.
-- **Inspectable Sources**: Expandable accordion card under every answer displaying the file name, page number, chunk text, and **Relevance Match %**.
-- **Interactive Tuning**: Sliders for `Chunk Size` (200–1500), `Chunk Overlap` (0–400), and `Top-K Retrieved Chunks` (1–15).
-- **Persona Switcher**: Choose between **Helpful Assistant**, **AI Detective**, **Strict Fact-Checker**, or **Academic Researcher**.
+**Web UI Capabilities**:
+- **🌐 Ingest Web URL**: Paste any link (e.g., article or online PDF) and click **"⚡ Summarize URL"** to digest the page and immediately ask questions about it!
+- **📁 Upload Files**: Drag & drop or browse local PDF, TXT, or Markdown documents.
+- **📑 Executive Briefing**: Click **"Generate Executive Briefing"** to summarize the active content and generate clickable question pills.
+- **Inspectable Sources**: Expandable accordion card under every answer displaying the file name / URL, page number, chunk text, and **Relevance Match %**.
+- **Interactive Tuning**: Sliders for `Chunk Size`, `Chunk Overlap`, and `Top-K Retrieved Chunks`.
 
 ---
 
@@ -162,13 +166,13 @@ Run the full pipeline directly in your terminal:
 *(Or double-click `run_cli.bat` on Windows)*
 
 **CLI Commands**:
-- `/summary` — **(NEW)** Generate an Executive Briefing across documents with curated questions.
+- `/url <link>` — **(NEW)** Ingest any web page or online PDF URL, summarize it, and ask questions.
+- `/summary` — Generate an Executive Briefing across documents with curated questions.
 - `/sources` — Show retrieved chunks with **Relevance Match %** and page numbers.
 - `/stats` — Display active vector index metrics and hyperparameters.
 - `/persona <type>` — Switch persona (`assistant`, `detective`, `strict_analyst`, `academic`).
 - `/save <dir>` — Persist the current FAISS vector store to disk.
 - `/load <dir>` — Load an existing FAISS vector store from disk.
-- `/clear` — Reset conversational memory.
 - `exit` — Exit the CLI.
 
 ---
@@ -194,41 +198,22 @@ rag = RAGPipeline(
     embed_model="bge-m3",
     chunk_size=500,
     chunk_overlap=150,
-    k=5,
-    persona="assistant"
+    k=5
 )
 
-# 2. Ingest documents (files or directory)
-stats = rag.build_index_from_files("./data")
-print(f"Indexed {stats['files_count']} files into {stats['total_chunks']} chunks.")
-
-# 3. Generate Executive Briefing & Smart Questions (NEW)
-briefing = rag.generate_summary()
+# 2. Ingest and summarize any Web URL
+briefing = rag.summarize_url("https://en.wikipedia.org/wiki/Artificial_intelligence")
 print("Executive Briefing:\n", briefing["summary"])
 print("Suggested Questions:\n", briefing["suggested_questions"])
 
-# 4. Ask questions with conversational memory & relevance scores
-result = rag.ask("Why is Elrond under investigation?")
+# 3. Ask questions about the web page
+result = rag.ask("What are the primary sub-fields of artificial intelligence?")
 print("Answer:\n", result["answer"])
 
-# 5. Inspect retrieved sources with relevance %
+# 4. Inspect sources with relevance match %
 for source in result["sources"]:
-    print(f"- {source['file_name']} (Page {source['page']}) -> Match: {source['relevance_score']}")
-
-# 6. Save index for reuse later
-rag.save_index("my_faiss_index")
+    print(f"- {source['file_name']} -> Match: {source['relevance_score']}")
 ```
-
----
-
-## ⚙️ Hyperparameter Tuning Guide
-
-| Parameter | Default | Range | Description |
-|---|---|---|---|
-| `chunk_size` | `500` | 200 – 1500 | Character length of each chunk. Smaller chunks isolate specific facts; larger chunks provide broader context. |
-| `chunk_overlap` | `150` | 50 – 300 | Characters shared between adjacent chunks to prevent cutting sentences across boundaries. |
-| `k` | `5` | 1 – 15 | Number of highest-similarity chunks retrieved from FAISS and fed into the LLM context. |
-| `persona` | `assistant` | detective / analyst / academic | Controls the system prompt and tone while enforcing factual grounding. |
 
 ---
 

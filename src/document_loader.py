@@ -1,10 +1,15 @@
 """
 Document Loading and Preprocessing Module.
-Handles loading various file types into normalized LangChain Document objects.
+Handles loading various file types (PDF, TXT, MD, JSON, CSV) and web URLs
+into normalized LangChain Document objects.
 """
 
 import os
+import re
+import tempfile
 from typing import List, Tuple, Union
+import requests
+from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 
@@ -12,7 +17,7 @@ from .config import SUPPORTED_EXTENSIONS
 
 
 class DocumentManager:
-    """Manages reading and parsing document files into LangChain Document instances."""
+    """Manages reading and parsing document files and URLs into LangChain Document instances."""
 
     @classmethod
     def load_file(cls, file_path: str) -> List[Document]:
@@ -90,3 +95,99 @@ class DocumentManager:
                 print(f"Warning: Failed to load {fp}: {e}")
 
         return all_docs, loaded_files
+
+    @classmethod
+    def load_url(cls, url: str) -> Tuple[List[Document], str]:
+        """
+        NEW FEATURE: Fetches and parses a web URL (HTML page or online PDF).
+        Returns:
+            (documents, page_title)
+        """
+        url = url.strip()
+        if not re.match(r"^https?://", url, re.IGNORECASE):
+            url = "https://" + url
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8"
+        }
+
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+        except Exception as e:
+            raise ValueError(f"Failed to fetch URL ({url}): {e}")
+
+        content_type = resp.headers.get("Content-Type", "").lower()
+
+        # Handle online PDF
+        if "application/pdf" in content_type or url.lower().endswith(".pdf"):
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(resp.content)
+                tmp_path = tmp.name
+
+            try:
+                loader = PyPDFLoader(tmp_path)
+                docs = loader.load()
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+            title = os.path.basename(url.split("?")[0]) or "Online PDF Document"
+            for doc in docs:
+                doc.metadata["file_name"] = f"[PDF URL] {title}"
+                doc.metadata["url"] = url
+                if "page" in doc.metadata and isinstance(doc.metadata["page"], int):
+                    doc.metadata["page"] += 1
+                else:
+                    doc.metadata["page"] = 1
+            return docs, title
+
+        # Handle HTML web page
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Strip unneeded elements
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe"]):
+            tag.decompose()
+
+        # Extract title
+        title = ""
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
+        elif soup.find("h1"):
+            title = soup.find("h1").get_text().strip()
+        if not title:
+            title = url
+
+        # Extract main text
+        lines = []
+        for elem in soup.find_all(["p", "h1", "h2", "h3", "h4", "li", "article", "blockquote"]):
+            text = elem.get_text().strip()
+            if text and len(text) > 15:
+                lines.append(text)
+
+        full_text = "\n\n".join(lines)
+        if not full_text.strip():
+            # Fallback to whole body text
+            full_text = "\n".join([line.strip() for line in soup.get_text().splitlines() if line.strip()])
+
+        if not full_text.strip():
+            raise ValueError(f"No readable content could be extracted from {url}")
+
+        doc = Document(
+            page_content=full_text,
+            metadata={
+                "source": url,
+                "file_name": f"[Web] {title[:60]}",
+                "title": title,
+                "url": url,
+                "page": 1
+            }
+        )
+        return [doc], title
